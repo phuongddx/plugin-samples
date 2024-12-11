@@ -124,42 +124,93 @@ function traverseToken({
   }
 }
 
+
 async function exportToJSON() {
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
   const files = [];
   for (const collection of collections) {
+    // console.log("--Collection name:", collection);
     files.push(...(await processCollection(collection)));
   }
   figma.ui.postMessage({ type: "EXPORT_RESULT", files });
 }
 
 async function processCollection({ name, modes, variableIds }) {
+  const result = {};
+
   const files = [];
   for (const mode of modes) {
-    const file = { fileName: `${name}.${mode.name}.tokens.json`, body: {} };
+    result[mode.name] = { body: {} };
+
+    const file = { body: {} };
+
+    // for (const variableId of variableIds) {
+    //   const { name, resolvedType, valuesByMode } = await figma.variables.getVariableByIdAsync(variableId);
+    //   const value = valuesByMode[mode.modeId];
+
+    //   if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
+    //     let obj = result[mode.name].body;
+
+    //     name.split("/").forEach((groupName) => {
+    //       obj[groupName] = obj[groupName] || {};
+    //       obj = obj[groupName];
+    //     });
+    //     obj.$type = resolvedType === "COLOR" ? "color" : "number";
+    //     if (value.type === "VARIABLE_ALIAS") {
+    //       const { id, valuesByMode } = await figma.variables.getVariableByIdAsync(value.id);
+    //       // obj.$value = `{${name.replace(/\//g, ".")}}`;
+
+    //       const singleValue = await valuesByMode[mode.modeId];
+    //       console.log("===>>>", typeof singleValue, ' ---- ',  singleValue ? singleValue.type : null);
+    //     } else {
+    //       obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
+    //     }
+    //   }
+    // }
+
     for (const variableId of variableIds) {
-      const { name, resolvedType, valuesByMode } =
-        await figma.variables.getVariableByIdAsync(variableId);
-      const value = valuesByMode[mode.modeId];
-      if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
-        let obj = file.body;
-        name.split("/").forEach((groupName) => {
-          obj[groupName] = obj[groupName] || {};
-          obj = obj[groupName];
-        });
-        obj.$type = resolvedType === "COLOR" ? "color" : "number";
-        if (value.type === "VARIABLE_ALIAS") {
-          const currentVar = await figma.variables.getVariableByIdAsync(
-            value.id
-          );
-          obj.$value = `{${currentVar.name.replace(/\//g, ".")}}`;
-        } else {
-          obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
+      try {
+        const { name, resolvedType, valuesByMode } = await figma.variables.getVariableByIdAsync(variableId);
+
+        // Wait until valuesByMode is fully available
+        if (!valuesByMode) {
+          console.warn(`No valuesByMode for variableId ${variableId}`);
+          continue;
         }
+
+        // console.log("Successfully retrieved valuesByMode:", valuesByMode);
+
+        const value = valuesByMode[mode.modeId];
+        if (value !== undefined && ["COLOR", "FLOAT"].includes(resolvedType)) {
+          let obj = result[mode.name].body;
+
+          name.split("/").forEach((groupName) => {
+            obj[groupName] = obj[groupName] || {};
+            obj = obj[groupName];
+          });
+          obj.$type = resolvedType === "COLOR" ? "color" : "number";
+
+          if (value.type === "VARIABLE_ALIAS") {
+            const aliasVariable = await figma.variables.getVariableByIdAsync(value.id);
+            const { id, valuesByMode: aliasValuesByMode } = aliasVariable;
+
+            // Ensure aliasValuesByMode is also resolved
+            const singleValue = aliasValuesByMode ? await aliasValuesByMode[mode.modeId] : undefined;
+
+            if (singleValue !== undefined) { 
+              console.log("Alias Single Value:", singleValue.value); 
+            }
+          } else {
+            obj.$value = resolvedType === "COLOR" ? rgbToHex(value) : value;
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing variableId ${variableId}:`, error);
       }
     }
     files.push(file);
   }
+  console.log("Result", result);
   return files;
 }
 
@@ -180,8 +231,8 @@ if (figma.command === "import") {
   });
 } else if (figma.command === "export") {
   figma.showUI(__uiFiles__["export"], {
-    width: 500,
-    height: 500,
+    width: 200,
+    height: 200,
     themeColors: true,
   });
 }
